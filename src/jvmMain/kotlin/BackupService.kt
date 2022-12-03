@@ -1,3 +1,5 @@
+import exceptions.NameAlreadyTaken
+import exceptions.UniqueNameNotFound
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -17,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileNotFoundException
 import java.util.*
 
 object BackupService {
@@ -37,40 +40,43 @@ object BackupService {
     }
 
     suspend fun getPath(uniqueName: String): String {
-        println("getPath start")
+
         val response = client.get(API) {
             url {
                 parameter("uniqueName", uniqueName)
             }
         }
-        println("getPath end")
+
+        if (response.status == HttpStatusCode.NotFound) {
+            throw UniqueNameNotFound()
+        }
+
         return response.bodyAsText()
     }
 
     private suspend fun postFile(path: String, uniqueName: String) {
-        println("postFile start")
         val file = File(path)
         val fileName = file.name
 
-        client.post(API) {
-            setBody(
-                MultiPartFormDataContent(
-                    formData {
-                        append("file", ChannelProvider(file.length()) {
-                            file.readChannel()
-                        }, Headers.build {
-                            append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
-                            append("uniqueName", uniqueName)
-                            append("path", file.absolutePath)
-                        })
-                    },
-                    boundary = "WebAppBoundary"
+        if (file.isFile) {
+            client.post(API) {
+                setBody(
+                    MultiPartFormDataContent(
+                        formData {
+                            append("file", ChannelProvider(file.length()) {
+                                file.readChannel()
+                            }, Headers.build {
+                                append(HttpHeaders.ContentDisposition, "filename=\"$fileName\"")
+                                append("uniqueName", uniqueName)
+                                append("path", file.absolutePath)
+                            })
+                        },
+                        boundary = "WebAppBoundary"
+                    )
                 )
-            )
-//                onUpload { bytesSentTotal, contentLength ->
-//                    println("Sent $bytesSentTotal bytes from $contentLength")
-//                }
-            println("postFile end")
+            }
+        } else {
+            throw FileNotFoundException()
         }
     }
 
@@ -83,15 +89,20 @@ object BackupService {
     }
 
     suspend fun renameFile(oldName: String, newName: String) {
-        client.patch(API) {
+        val response = client.patch(API) {
             url {
                 parameter("oldName", oldName)
                 parameter("newName", newName)
             }
         }
+
+        when(response.status) {
+            HttpStatusCode.NotFound -> throw UniqueNameNotFound()
+            HttpStatusCode.Conflict -> throw NameAlreadyTaken()
+        }
     }
 
-    suspend fun getPaths(uniqueNames: List<String>): List<String> {
+    suspend fun getPaths(uniqueNames: List<String>): List<Pair<String, String>> {
         return client.get("$API/list") {
             contentType(ContentType.Application.Json)
             setBody(uniqueNames)
@@ -110,11 +121,16 @@ object BackupService {
     suspend fun createBackup() {
         val paths = getAllFiles()
         paths.forEach {
-            postFile(it.first, it.second)
+            try {
+                postFile(it.first, it.second)
+            } catch (_: Exception) {
+
+            }
         }
     }
 
     suspend fun restoreFile(uniqueName: String, preferredPath: String? = null) {
+
         client.prepareGet("$API/restore") {
             url {
                 parameter("uniqueName", uniqueName)
@@ -122,12 +138,12 @@ object BackupService {
         }.execute {
 
             val pathFromServer = it.headers.flattenEntries().toMap()["path"]!! // TODO: 16.11.2022
-            val path = if (preferredPath == null) {
-                pathFromServer
-            } else {
-                "$preferredPath/${pathFromServer.substringAfterLast('\\')}"
-            }
-            val file = File(path)
+            println(pathFromServer)
+
+            val folders = File(preferredPath ?: pathFromServer.substringBeforeLast('\\'))
+            folders.mkdirs()
+
+            val file = File(folders, pathFromServer.substringAfterLast('\\'))
             file.delete()
 
             val channel: ByteReadChannel = it.body()

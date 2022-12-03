@@ -13,6 +13,8 @@ import androidx.compose.ui.window.application
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import screens.*
+import java.util.StringJoiner
 
 const val MILLISEC_IN_DAY = 86_400_000L
 
@@ -52,6 +54,7 @@ fun App() {
                     outputText.value = "Ok"
                 }
             )
+
             val event = remember { mutableStateOf(radioButtons.first().second) }
             val (selectedOption, onOptionSelected) = remember { mutableStateOf(radioButtons[0]) }
 
@@ -101,6 +104,45 @@ fun main() = application {
                 delay(MILLISEC_IN_DAY)
             }
         }
-        App()
+        //AddFileScreen()
+        //App()
+        //GetPathScreen()
+        MainScreen()
+    }
+}
+
+@Composable
+fun MainScreen() {
+    Row {
+        val map = listOf<Pair<String, @Composable () -> Unit>>(
+            "Добавить файл" to { AddFileScreen() },
+            "Получить путь до файла" to { GetPathScreen() },
+            "Удалить файл" to { DeleteFileScreen() },
+            "Переименовать идентификатор" to { RenameFileScreen() },
+            "Получить пути к файлам" to { GetPathsScreen() },
+            "Восстановить файлы" to { RestoreFilesScreen() }
+        )
+
+        val (selectedOption, onOptionSelected) = remember { mutableStateOf(map[0]) }
+        val page = remember { mutableStateOf<@Composable () -> Unit>( map.first().second ) }
+
+        Column(modifier = Modifier.fillMaxHeight().selectableGroup()) {
+            map.forEach { pair ->
+                Row {
+                    RadioButton(
+                        selected = pair.first == selectedOption.first,
+                        onClick = {
+                            page.value = pair.second
+                            onOptionSelected(pair)
+                        }
+                    )
+                    Text(pair.first)
+                }
+
+            }
+        }
+
+        page.value()
+
     }
 }
