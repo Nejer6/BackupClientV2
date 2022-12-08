@@ -117,7 +117,6 @@ object BackupService {
         return client.get("$API/all").body()
     }
 
-    // TODO: 16.11.2022 Сделать проверку по времени
     suspend fun createBackup() {
         val paths = getAllFiles()
         paths.forEach {
